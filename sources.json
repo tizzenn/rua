@@ -1,0 +1,71 @@
+[
+  {
+    "name": "Concertos do Xacobeo — API oficial de eventos",
+    "type": "tribe_api",
+    "url": "https://concertosdoxacobeo.gal/wp-json/tribe/events/v1/events",
+    "page": "https://concertosdoxacobeo.gal/es/",
+    "days_ahead": 540,
+    "per_page": 100,
+    "status": "announced",
+    "enabled": true
+  },
+  {
+    "name": "Axenda de Cultura de Galicia — Calendario ICS oficial",
+    "type": "ics",
+    "url": "https://abertos.xunta.gal/catalogo/cultura-ocio-deporte/-/dataset/0045/axenda-cultura-galicia/102/acceso-aos-datos.calendario",
+    "page": "https://www.cultura.gal/es/axenda",
+    "status": "announced",
+    "enabled": true
+  },
+  {
+    "name": "Axenda de Cultura de Galicia — RSS oficial",
+    "type": "rss",
+    "url": "https://abertos.xunta.gal/catalogo/cultura-ocio-deporte/-/dataset/0045/axenda-cultura-galicia/101/acceso-aos-datos.rss",
+    "page": "https://www.cultura.gal/es/axenda",
+    "status": "announced",
+    "enabled": true
+  },
+  {
+    "name": "Axenda de Cultura de Galicia — API JSON (pendiente de prueba HTTPS)",
+    "type": "cultura_api",
+    "url": "https://www.cultura.gal/services/abertos",
+    "page": "https://www.cultura.gal/es/axenda",
+    "language": "es",
+    "days_ahead": 365,
+    "councils": {
+      "Ourense": 403,
+      "Vigo": 502,
+      "Santiago de Compostela": 270
+    },
+    "status": "announced",
+    "enabled": false,
+    "disabled_reason": "Desactivada tras recibir HTTP 403 en una prueba manual del 15/11/2026. No intentar eludir el bloqueo; revalidar solo si la Xunta publica una vía de acceso autorizada."
+  },
+  {
+    "name": "Turismo de Santiago — agenda de música urbana (JSON-LD pendiente de validar)",
+    "type": "jsonld",
+    "url": "https://www.santiagoturismo.com/axenda-cultural/e:musica-urbana",
+    "page": "https://www.santiagoturismo.com/axenda-cultural/e:musica-urbana",
+    "city": "Santiago de Compostela",
+    "status": "announced",
+    "enabled": false
+  },
+  {
+    "name": "Turismo de Ourense — agenda (JSON-LD pendiente de validar)",
+    "type": "jsonld",
+    "url": "https://turismo.ourense.gal/agenda/",
+    "page": "https://turismo.ourense.gal/agenda/",
+    "city": "Ourense",
+    "status": "announced",
+    "enabled": false
+  },
+  {
+    "name": "Oazis — música en Vigo (JSON-LD pendiente de validar; fuente secundaria)",
+    "type": "jsonld",
+    "url": "https://oazis.app/es/planes/vigo/musica",
+    "page": "https://oazis.app/es/planes/vigo/musica",
+    "city": "Vigo",
+    "status": "unverified",
+    "enabled": false
+  }
+]

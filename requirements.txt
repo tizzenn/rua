@@ -1,0 +1,2 @@
+# Solo necesario para ENVIAR notificaciones push. El resto usa la biblioteca estándar.
+pywebpush>=2.0

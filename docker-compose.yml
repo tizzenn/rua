@@ -1,0 +1,39 @@
+services:
+  rua:
+    build: .
+    image: rua:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUA_HOST: 0.0.0.0
+      RUA_PORT: 8000
+      RUA_DB: /data/rua.sqlite3
+      RUA_CONFIG_DIR: /data
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - rua-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  collector:
+    image: rua:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUA_DB: /data/rua.sqlite3
+      RUA_CONFIG_DIR: /data
+    volumes:
+      - rua-data:/data
+    depends_on:
+      rua:
+        condition: service_healthy
+    command: ["sh", "-c", "while true; do python collector.py || true; sleep ${RUA_COLLECTOR_INTERVAL:-21600}; done"]
+
+volumes:
+  rua-data:
+    name: rua-data

@@ -1,0 +1,14 @@
+[
+  {
+    "artist": "Nombre del artista",
+    "city": "Vigo",
+    "venue": "Nombre de la sala",
+    "date": "2027-02-12",
+    "style": "Rap",
+    "type": "Concierto",
+    "status": "unverified",
+    "source": "Web oficial",
+    "source_url": "https://example.com/evento",
+    "notes": "PLANTILLA: sustituye por un evento real."
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "name": "Rúa",
+  "description": "Agenda local abierta y autogestionada",
+  "geographic_mode": "local",
+  "municipalities": ["Ourense", "Vigo", "Santiago de Compostela"],
+  "default_radius_km": 25,
+  "timezone": "Europe/Madrid",
+  "allow_public_registration": false,
+  "federation_enabled": false
+}

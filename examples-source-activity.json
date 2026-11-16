@@ -1,0 +1,14 @@
+{
+  "name": "Agenda cultural municipal (ejemplo, no activar sin verificar)",
+  "type": "jsonld",
+  "model": "activity",
+  "url": "https://example.org/agenda",
+  "page": "https://example.org/agenda",
+  "municipality": "Ourense",
+  "category_ids": ["cultura", "teatro"],
+  "event_type": "event",
+  "activity_status": "scheduled",
+  "verification": "single_source",
+  "enabled": false,
+  "disabled_reason": "Ejemplo de configuración; sustituir por una fuente real comprobada."
+}
