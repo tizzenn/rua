@@ -1,0 +1,86 @@
+name: Rúa agenda (recolector + sitio gratis)
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"          # cada 6 horas (hora UTC)
+  workflow_dispatch:                 # botón «Run workflow»
+  push:
+    branches: [main, master]
+    paths:                           # al editar la configuración se redespliega solo
+      - "review.json"
+      - "profile.json"
+      - "sources.json"
+      - "venues.json"
+      - "artists.json"
+      - "instance.json"
+      - "categories.json"
+      - "*.py"
+      - ".github/workflows/rua-agenda.yml"
+
+permissions:
+  contents: write                    # guardar el estado en una release
+  pages: write
+  id-token: write
+
+concurrency:
+  group: rua-agenda
+  cancel-in-progress: false
+
+env:
+  RUA_DB: ${{ github.workspace }}/state/rua.sqlite3
+  RUA_BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restaurar estado anterior
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p state
+          gh release download rua-state --pattern rua.sqlite3 --dir state --clobber || echo "Sin estado previo (primera ejecución)"
+
+      - name: Pruebas
+        run: python -m unittest discover -s tests
+
+      - name: Recolectar
+        run: python collector.py --no-notify
+
+      - name: Aplicar review.json
+        run: python apply_review.py
+
+      - name: Avisos por ntfy (opcional)
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python ci_notify.py
+
+      - name: Generar sitio
+        run: python publish_static.py site
+
+      - name: Guardar estado
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view rua-state >/dev/null 2>&1 || gh release create rua-state --title "Estado de Rúa" --notes "Base de datos interna de la agenda. No borrar." --latest=false
+          gh release upload rua-state state/rua.sqlite3 --clobber
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

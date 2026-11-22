@@ -1,0 +1,5 @@
+{
+  "_nota": "Edita este fichero desde la web de GitHub (lápiz ✏) para corregir falsos positivos; el siguiente despliegue lo aplica. 'reject' oculta la actividad para siempre; 'confirm' la marca como verificada. 'date' es opcional.",
+  "reject": [],
+  "confirm": []
+}

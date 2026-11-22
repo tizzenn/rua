@@ -7,7 +7,11 @@
     "days_ahead": 540,
     "per_page": 100,
     "status": "announced",
-    "enabled": true
+    "enabled": true,
+    "model": "activity",
+    "category_ids": [
+      "musica"
+    ]
   },
   {
     "name": "Axenda de Cultura de Galicia — Calendario ICS oficial",
@@ -15,7 +19,9 @@
     "url": "https://abertos.xunta.gal/catalogo/cultura-ocio-deporte/-/dataset/0045/axenda-cultura-galicia/102/acceso-aos-datos.calendario",
     "page": "https://www.cultura.gal/es/axenda",
     "status": "announced",
-    "enabled": true
+    "enabled": true,
+    "model": "activity",
+    "default_category": "cultura"
   },
   {
     "name": "Axenda de Cultura de Galicia — RSS oficial",
@@ -23,7 +29,30 @@
     "url": "https://abertos.xunta.gal/catalogo/cultura-ocio-deporte/-/dataset/0045/axenda-cultura-galicia/101/acceso-aos-datos.rss",
     "page": "https://www.cultura.gal/es/axenda",
     "status": "announced",
-    "enabled": true
+    "enabled": false,
+    "model": "activity",
+    "default_category": "cultura",
+    "disabled_reason": "Comprobado el 17-11-2026: los 50 elementos llegan sin fecha de evento (todos 'sin título o fecha'). El Calendario ICS de la misma agenda trae fecha y municipio, así que el RSS no aporta nada. Reactivar solo si el feed incluye la fecha de la actividad."
+  },
+  {
+    "name": "La Ganzúa — conciertos (fichas JSON-LD; tercero)",
+    "type": "jsonld",
+    "model": "activity",
+    "url": "https://www.laganzua.net/conciertos/vigo",
+    "urls": [
+      "https://www.laganzua.net/conciertos/vigo",
+      "https://www.laganzua.net/conciertos/vigo-pagina-2",
+      "https://www.laganzua.net/conciertos/santiago-de-compostela",
+      "https://www.laganzua.net/conciertos/santiago-de-compostela-pagina-2",
+      "https://www.laganzua.net/conciertos/ourense"
+    ],
+    "page": "https://www.laganzua.net/conciertos/vigo",
+    "category_ids": [
+      "musica"
+    ],
+    "status": "unverified",
+    "enabled": true,
+    "_nota": "Las 5 páginas existen (comprobado el 17-11-2026). Solo /conciertos/vigo se ha probado con el recolector (24 eventos JSON-LD, robots.txt lo permite); si en las demás el JSON-LD no aparece, --inspect lo dirá. Ourense trae muy pocos conciertos en esa web. Respeta robots.txt y espera 2 s entre peticiones. Revisa sus condiciones de uso; para apagarla, enabled=false."
   },
   {
     "name": "Axenda de Cultura de Galicia — API JSON (pendiente de prueba HTTPS)",

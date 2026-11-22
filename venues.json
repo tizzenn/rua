@@ -1,0 +1,118 @@
+{
+  "_nota": "Lista inicial EDITABLE de locales y su municipio REAL. Manda sobre la etiqueta de un agregador (La Ganzúa etiqueta Sala Queen como Vigo, pero está en Mos). Un municipio que no esté en instance.json = fuera de ámbito.",
+  "venues": [
+    {
+      "name": "Sala Queen",
+      "aliases": [
+        "Queen Mos"
+      ],
+      "municipality": "Mos",
+      "fuente": "Ficha de la sala en La Ganzúa y Taquilla: Av. de Sanguiñeda 133, Mos"
+    },
+    {
+      "name": "Sala Pelicano",
+      "municipality": "A Coruña"
+    },
+    {
+      "name": "Sala Tebras",
+      "municipality": "Lugo"
+    },
+    {
+      "name": "Sala Rouge",
+      "municipality": "Vigo"
+    },
+    {
+      "name": "Fábrica de Chocolate",
+      "aliases": [
+        "La Fábrica de Chocolate"
+      ],
+      "municipality": "Vigo"
+    },
+    {
+      "name": "Sala Doppler",
+      "municipality": "Vigo"
+    },
+    {
+      "name": "MasterClub",
+      "aliases": [
+        "Master Club"
+      ],
+      "municipality": "Vigo"
+    },
+    {
+      "name": "Mondo Club",
+      "municipality": "Vigo"
+    },
+    {
+      "name": "La Iguana Club",
+      "municipality": "Vigo"
+    },
+    {
+      "name": "IFEVI",
+      "municipality": "Vigo"
+    },
+    {
+      "name": "Sala Capitol",
+      "municipality": "Santiago de Compostela"
+    },
+    {
+      "name": "Sala Malatesta",
+      "municipality": "Santiago de Compostela"
+    },
+    {
+      "name": "Café & Pop Torgal",
+      "aliases": [
+        "Torgal"
+      ],
+      "municipality": "Ourense"
+    },
+    {
+      "name": "Café Auriense",
+      "aliases": [
+        "Auriense",
+        "Café Cultural Auriense"
+      ],
+      "municipality": "Ourense"
+    },
+    {
+      "name": "Sala Sónar",
+      "municipality": "Santiago de Compostela"
+    },
+    {
+      "name": "Sala Moon Music Club",
+      "municipality": "Santiago de Compostela"
+    },
+    {
+      "name": "Praza da Quintana",
+      "municipality": "Santiago de Compostela"
+    },
+    {
+      "name": "Teatro Afundación",
+      "municipality": "Vigo"
+    },
+    {
+      "name": "Auditorio Mar de Vigo",
+      "municipality": "Vigo"
+    },
+    {
+      "name": "Palacio de la Ópera",
+      "municipality": "A Coruña"
+    },
+    {
+      "name": "Sala Pantalán",
+      "municipality": "A Coruña"
+    },
+    {
+      "name": "Sala Malavida",
+      "municipality": "A Coruña"
+    },
+    {
+      "name": "El Pueblo Café Cultural",
+      "municipality": "Ourense"
+    },
+    {
+      "name": "A Arca da Noe",
+      "municipality": "Vilar de Santos"
+    }
+  ]
+}

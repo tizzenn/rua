@@ -217,3 +217,107 @@ python server.py import eventos-ejemplo.json
 ## Cliente Android (0.1.0 en desarrollo)
 
 El cliente Android nativo está en `android/`. Reutiliza `GET /api/activities`, no requiere cambiar el backend y no incorpora Firebase ni servicios propietarios. Incluye filtros, búsqueda y avisos locales mediante WorkManager cada seis horas aproximadamente. La primera sincronización de avisos crea una línea base silenciosa. Requiere servidor HTTPS. Instrucciones y limitaciones en `android/README.md`.
+
+## Perfil de intereses (`profile.json`)
+Rúa es una agenda general. Lo que cada persona o instancia quiere ver destacado o recibir por aviso se define en
+**`profile.json`**, sin tocar código. El que se incluye (**rap en Galicia**) es solo un ejemplo, como un lorem ipsum:
+edítalo, sustitúyelo o bórralo (sin él la agenda es neutra: sin destacados ni avisos).
+
+| Campo | Qué hace |
+|---|---|
+| `highlight` | ids de `categories.json` que salen destacadas (`highlight: true` en `/api/activities`) |
+| `notify` | categorías que generan aviso push. Vacío = sin avisos de actividades |
+| `show_others` | `false` oculta lo que no sea destacado (lo aplica el cliente) |
+| `interests` | por categoría: `keywords`, `artists_file` (catálogo como `artists.json`) y `requires_category` |
+| `category_rules` | palabras clave en el título que asignan categorías a fuentes generalistas (ICS, RSS…) |
+
+`requires_category` evita falsos positivos: una mención de «rap» solo en la descripción cuenta si la actividad ya es
+de esa categoría (p. ej. `musica`); en el título cuenta siempre. Lo que no encaja en ninguna regla cae en
+`default_category` de la fuente (`otros` por defecto). `GET /api/profile` expone `name/highlight/notify/show_others`.
+
+**Ejemplo para otro uso** (carreras populares): `"highlight": ["running-trail"], "interests": {"running-trail": {"keywords": ["carreira", "trail"]}}`.
+
+## Ámbito geográfico (municipio)
+Orden de decisión para cada actividad: 1) **`venues.json`** (municipio real del local; p. ej. *Sala Queen* está en **Mos**,
+aunque algún agregador la ponga en Vigo), 2) el campo de municipio de la fuente (ICS: «Lugar - Municipio»; Xacobeo: ciudad
+del local), 3) el texto del lugar, 4) el `municipality` de la fuente. `instance.json` admite `municipality_aliases`
+(`Orense` → `Ourense`) y `provinces` (una provincia al final del lugar no cuenta como municipio, así Ribadavia no pasa
+por «Ourense»). Un municipio fuera de `municipalities` se descarta, salvo `geographic_mode: unrestricted`.
+
+## Fuentes (modelo `activity`)
+Xacobeo, el ICS y el RSS de la Axenda pasan al modelo general con categorías; se añade **La Ganzúa** (fichas JSON-LD,
+tercero: respeta `robots.txt`, espera 2 s entre peticiones, activable/desactivable con `enabled`). La API JSON de Cultura
+sigue **desactivada** (HTTP 403, no se intenta eludir). Las URLs de Santiago y Ourense de La Ganzúa no están verificadas.
+Duplicados entre fuentes (mismo municipio y día, título equivalente) se fusionan y conservan todas las procedencias.
+Cancelado/aplazado se detecta por texto, `STATUS:CANCELLED` (ICS) y `eventStatus` (JSON-LD), y avisa una vez si ya habías
+recibido la actividad.
+
+### Diagnóstico de una fuente
+```bash
+python collector.py --inspect "Nombre de la fuente" [--all]
+```
+Muestra los primeros elementos crudos, cuántos se aceptan o descartan y por qué, el reparto por categoría y lo que el
+perfil destaca.
+
+## Pruebas
+```bash
+python -m unittest discover -s tests
+```
+
+## Vigilancia de fuentes y revisión de lo inferido
+**Fuentes que fallan en silencio.** Una web que cambia de formato suele devolver 0 elementos sin dar error. Una ejecución
+cuenta como *mala* si falla o devuelve 0 elementos; tras `RUA_BAD_RUNS_ALERT` (3 por defecto) ejecuciones malas seguidas de
+una fuente **activa**, `collector.py` avisa **una vez** por consola y por push («Rúa: fuente sin datos»). Si el push no está
+configurado el aviso sale en cada ejecución por consola hasta que se arregle. Al recuperarse la fuente, una nueva avería
+vuelve a avisar. `GET /api/status` añade `consecutive_bad` por fuente y `unhealthy` en el resumen.
+
+**Revisión de lo inferido.** Cuando un interés del perfil (p. ej. «rap») se asigna por palabra clave o artista, la actividad
+queda con `review: "pending"` (se sigue publicando y avisando: no se pierde antelación). Para corregir falsos positivos:
+```bash
+curl -H "Authorization: Bearer $RUA_ADMIN_TOKEN" "http://127.0.0.1:8000/api/admin/review?state=pending"
+curl -X POST -H "Authorization: Bearer $RUA_ADMIN_TOKEN" -H "Content-Type: application/json" \
+     -d '{"id": 12, "action": "reject"}' http://127.0.0.1:8000/api/admin/review     # confirm | reject | restore
+```
+`reject` oculta la actividad en `/api/activities` y en los avisos, y **no reaparece** aunque la fuente la repita
+(`state=rejected` lista las descartadas; `restore` la devuelve a pendiente). `confirm` la marca como verificada.
+No hay pantalla de revisión en la web ni en Android todavía: por ahora es solo API.
+
+
+## Alojamiento GRATIS sin servidor (GitHub Actions + GitHub Pages)
+No hace falta ningún servidor ni dejar el PC encendido. El workflow `.github/workflows/rua-agenda.yml`, cada 6 horas
+(o con el botón *Run workflow*, o al editar la configuración), hace esto:
+
+1. Restaura la base de datos desde una *release* llamada `rua-state` (así no hay que guardar binarios en el repositorio).
+2. Pasa las pruebas y ejecuta `collector.py`.
+3. Aplica `review.json` (ver abajo) y, si existe el secreto `NTFY_TOPIC`, manda avisos por **ntfy**.
+4. Genera el sitio estático con `publish_static.py` (carpeta `site/`) y lo publica en GitHub Pages.
+5. Guarda la base de datos de vuelta en la release.
+
+**Qué publica:** `index.html` (lista con buscador y filtros, lo destacado por el perfil arriba), `feed.xml` (RSS de lo
+destacado), `activities.json`, `profile.json`, `categories.json`, `status.json` y copias sin extensión en `api/activities`,
+`api/profile`, etc., por si un cliente espera las mismas rutas que el servidor. Los JSON no llevan huellas internas, errores ni URLs de fuentes.
+
+**Puesta en marcha (una sola vez):**
+1. Sube el código a `main` (el workflow programado solo corre desde la rama principal).
+2. GitHub → *Settings → Pages → Build and deployment → Source: **GitHub Actions***.
+3. Pestaña *Actions → Rúa agenda → Run workflow*. Al terminar, la web está en `https://<usuario>.github.io/<repo>/`.
+
+**Avisos en el móvil (opcional, gratis):** instala la app **ntfy**, suscríbete a un tema con nombre largo y aleatorio (quien
+lo conozca puede leer los avisos) y guárdalo como secreto del repo: *Settings → Secrets and variables → Actions → New
+repository secret → `NTFY_TOPIC`*. Se avisa de las categorías de `profile.json › notify` (nuevas y cancelaciones) y de fuentes
+rotas. Sin ese secreto simplemente no hay avisos. *Web Push* necesita un servidor que reciba las suscripciones, por eso aquí se usa ntfy.
+
+**Corregir falsos positivos sin servidor: `review.json`.** Edítalo desde la web de GitHub (icono del lápiz) y confirma el
+cambio: el siguiente despliegue lo aplica.
+```json
+{"reject": [{"title": "Nombre de la actividad", "date": "2026-12-04"}], "confirm": [{"title": "Otra"}]}
+```
+`reject` la oculta para siempre (no reaparece aunque la fuente la repita), `confirm` la marca como verificada, `date` es opcional.
+Un `review.json` mal escrito se ignora con un aviso en el registro y no rompe el despliegue.
+
+**Límites y cosas a vigilar**
+- **Gratis para repositorios públicos.** En uno privado, Actions tiene minutos limitados y Pages puede no estar disponible en el plan gratuito.
+- **Repo público = datos públicos.** La release `rua-state` contiene la base de datos (actividades, no suscripciones: aquí no se guardan).
+- **Las ejecuciones programadas se desactivan** si el repo público pasa 60 días sin actividad: se reactivan con un clic en la pestaña Actions.
+- **Las webs de origen podrían bloquear las IP de GitHub** (están fuera de España). La primera ejecución lo dirá en su registro; el aviso «fuente sin datos» también.
+- Las horas del cron son UTC y GitHub puede retrasar las ejecuciones programadas unos minutos.

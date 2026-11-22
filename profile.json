@@ -1,0 +1,29 @@
+{
+  "_nota": "PERFIL DE EJEMPLO (rap en Galicia). Es solo un ejemplo, como un lorem ipsum: cámbialo o bórralo para una agenda general. Sin este fichero no hay destacados ni avisos y todas las categorías pesan igual. Los ids de categoría son los de categories.json.",
+  "name": "Ejemplo: rap en Galicia",
+  "highlight": ["rap"],
+  "notify": ["rap"],
+  "show_others": true,
+  "interests": {
+    "rap": {
+      "keywords": ["rap", "trap", "drill", "hip hop", "hiphop", "freestyle", "batalla de gallos", "boom bap", "cypher", "rapero", "rapera", "rapeiro", "rapeira", "underground"],
+      "artists_file": "artists.json",
+      "requires_category": "musica"
+    }
+  },
+  "category_rules": {
+    "musica": ["concierto", "concerto", "recital", "música", "musica", "festival de música"],
+    "clasica-jazz": ["jazz", "sinfónica", "sinfonica", "orquestra", "orquesta", "coral"],
+    "rock": ["rock", "metal", "punk"],
+    "electronica": ["electrónica", "electronica", "dj set", "techno"],
+    "teatro": ["teatro", "danza", "contacontos", "contacuentos", "monólogo", "monologo", "títeres", "titeres"],
+    "cine": ["cine", "filme", "película", "pelicula", "documental", "curtametraxe"],
+    "exposiciones": ["exposición", "exposicion", "mostra", "inauguración", "inauguracion"],
+    "talleres": ["taller", "obradoiro", "curso"],
+    "charlas": ["charla", "conferencia", "xornada", "xornadas", "congreso", "presentación do libro", "presentacion del libro"],
+    "rutas": ["ruta", "sendeirismo", "paseo guiado"],
+    "running-trail": ["carreira", "carrera popular", "trail", "maratón", "maraton"],
+    "ciclismo": ["ciclismo", "bicicleta", "btt"],
+    "fiestas-ferias": ["festa", "feira", "romaría", "romeria", "magosto", "entroido", "carnaval"]
+  }
+}

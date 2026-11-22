@@ -1,0 +1,10 @@
+*.sqlite3
+*.sqlite3-journal
+*.pem
+.env
+*.env
+__pycache__/
+*.pyc
+
+site/
+state/

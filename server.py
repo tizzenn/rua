@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rúa: servidor HTTP (PWA + API + RSS + suscripciones push). Solo sirve ./public."""
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 import json, os, sys, hmac, re, shutil
 from datetime import datetime, timezone
@@ -20,7 +20,7 @@ SOURCE_TYPES = {"ics", "rss", "atom", "json", "jsonld", "tribe_api", "cultura_ap
 def ensure_config_files():
     """Inicializa el volumen de configuración sin sobrescribir decisiones del administrador."""
     core.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    for name in ("instance.json", "sources.json", "categories.json"):
+    for name in ("instance.json", "sources.json", "categories.json", "profile.json", "venues.json"):
         target = core.config_path(name)
         source = core.ROOT / name
         if not target.exists() and source.exists():
@@ -38,7 +38,7 @@ def validate_instance(data):
     if not isinstance(data, dict):
         raise ValueError("La configuración debe ser un objeto JSON.")
     current = core.get_instance_config()
-    allowed = {"name", "description", "geographic_mode", "municipalities", "default_radius_km", "timezone", "allow_public_registration", "federation_enabled"}
+    allowed = {"name", "description", "geographic_mode", "municipalities", "default_radius_km", "timezone", "allow_public_registration", "federation_enabled", "municipality_aliases", "provinces"}
     if set(data) - allowed:
         raise ValueError("Hay campos de configuración desconocidos.")
     cfg = {**current, **data}
@@ -70,6 +70,11 @@ def validate_instance(data):
     for key in ("allow_public_registration", "federation_enabled"):
         if not isinstance(cfg[key], bool):
             raise ValueError(f"{key} debe ser booleano.")
+    if not isinstance(cfg.get("municipality_aliases", {}), dict) or any(
+            not isinstance(k, str) or not isinstance(x, str) for k, x in cfg.get("municipality_aliases", {}).items()):
+        raise ValueError("municipality_aliases debe ser un objeto {alias: municipio}.")
+    if not isinstance(cfg.get("provinces", []), list) or any(not isinstance(x, str) for x in cfg.get("provinces", [])):
+        raise ValueError("provinces debe ser una lista de nombres.")
     return cfg
 
 
@@ -209,6 +214,12 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(200, {"ok": True})
         if path.startswith("/api/admin/"):
             if not self.is_admin(): return self.send_json(403, {"error": "Autenticación de administración requerida."})
+            if path == "/api/admin/review":
+                try:
+                    state = parse_qs(urlparse(self.path).query).get("state", ["pending"])[0]
+                    return self.send_json(200, {"activities": core.review_list(state)})
+                except ValueError as exc:
+                    return self.send_json(400, {"error": str(exc)})
             if path == "/api/admin/config":
                 try:
                     sources_path = core.config_path("sources.json")
@@ -225,7 +236,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(200, {"sources": sources,
                 "checked": sum(1 for x in sources if x["status"] in ("ok", "error")),
                 "enabled": sum(1 for x in sources if x["enabled"]),
-                "errors": sum(1 for x in sources if x["enabled"] and x["status"] == "error")})
+                "errors": sum(1 for x in sources if x["enabled"] and x["status"] == "error"),
+                "unhealthy": sum(1 for x in sources if x["enabled"] and x["consecutive_bad"] >= core.BAD_RUNS_ALERT)})
         if path == "/api/events":
             events = core.get_events()
             for e in events:
@@ -234,6 +246,11 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/activities":
             activities = core.get_activities()
             return self.send_json(200, {"activities": activities, "count": len(activities)})
+        if path == "/api/profile":
+            # Preferencias públicas de visualización y avisos (sin secretos). Vacío = agenda neutra.
+            try: prof = core.get_profile()
+            except ValueError as exc: return self.send_json(500, {"error": str(exc)})
+            return self.send_json(200, {k: prof[k] for k in ("name", "highlight", "notify", "show_others")})
         if path == "/api/categories":
             return self.send_json(200, {"categories": core.get_categories()})
         if path == "/api/instance":
@@ -298,6 +315,11 @@ class Handler(SimpleHTTPRequestHandler):
                 results = [upsert(i) for i in batch]
                 return self.send_json(201, {"inserted": sum(1 for _, c in results if c),
                                             "updated": sum(1 for _, c in results if not c)})
+            if path == "/api/admin/review":
+                if not self.is_admin():
+                    return self.send_json(403, {"error": "Autenticación de administración requerida."})
+                d = self.read_json(10_000)
+                return self.send_json(200, core.review_action(d.get("id"), str(d.get("action"))))
             if path == "/api/push/subscribe":
                 return self.send_json(201, push.add_subscription(self.read_json(10_000), MAX_SUBS))
             if path == "/api/push/unsubscribe":

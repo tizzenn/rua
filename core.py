@@ -17,6 +17,7 @@ STATUSES = {"confirmed", "announced", "unverified"}
 FIELDS = ("artist", "city", "venue", "date", "style", "type", "status", "source",
           "source_url", "ticket_url", "announced_at", "presale_at", "style_source_url", "notes")
 SCHEMA_VERSION = 9
+BAD_RUNS_ALERT = int(os.environ.get("RUA_BAD_RUNS_ALERT", "3"))
 
 
 @contextmanager
@@ -53,7 +54,7 @@ def get_instance_config():
         "name": "Rúa", "description": "Agenda local abierta y autogestionada",
         "geographic_mode": "local", "municipalities": [], "default_radius_km": 25,
         "timezone": "Europe/Madrid", "allow_public_registration": False,
-        "federation_enabled": False,
+        "federation_enabled": False, "municipality_aliases": {}, "provinces": [],
     }
     if not path.exists():
         return defaults
@@ -66,7 +67,72 @@ def get_instance_config():
     if not isinstance(merged.get("municipalities"), list) or any(not isinstance(x, str) or not x.strip() for x in merged["municipalities"]):
         raise ValueError("municipalities debe ser una lista de localidades")
     merged["municipalities"] = list(dict.fromkeys(x.strip() for x in merged["municipalities"]))
+    aliases = merged.get("municipality_aliases")
+    if not isinstance(aliases, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in aliases.items()):
+        raise ValueError("municipality_aliases debe ser un objeto {alias: municipio}")
+    if not isinstance(merged.get("provinces"), list) or any(not isinstance(x, str) for x in merged["provinces"]):
+        raise ValueError("provinces debe ser una lista de nombres")
     return merged
+
+
+_PROFILE_CACHE = {}
+
+
+def get_profile():
+    """Perfil de intereses de la instancia (profile.json). Sin fichero: agenda neutra, sin destacados ni avisos.
+    El perfil incluido (rap en Galicia) es solo un ejemplo: se sustituye o se borra sin tocar el código."""
+    import json
+    defaults = {"name": "", "highlight": [], "notify": [], "show_others": True, "interests": {}, "category_rules": {}}
+    path = config_path("profile.json")
+    if not path.exists():
+        path = ROOT / "profile.json"
+    if not path.exists():
+        return defaults
+    stamp = (str(path), path.stat().st_mtime_ns)
+    if _PROFILE_CACHE.get("stamp") == stamp:
+        return _PROFILE_CACHE["value"]
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("profile.json debe contener un objeto JSON")
+    prof = {**defaults, **{k: v for k, v in data.items() if not k.startswith("_")}}
+    for key in ("highlight", "notify"):
+        if not isinstance(prof[key], list) or any(not isinstance(x, str) for x in prof[key]):
+            raise ValueError(f"profile.json: {key} debe ser una lista de ids de categoría")
+    if not isinstance(prof["show_others"], bool):
+        raise ValueError("profile.json: show_others debe ser booleano")
+    if not isinstance(prof["interests"], dict):
+        raise ValueError("profile.json: interests debe ser un objeto {categoría: {...}}")
+    for cid, cfg in prof["interests"].items():
+        if not isinstance(cfg, dict) or any(not isinstance(k, str) for k in cfg.get("keywords", [])):
+            raise ValueError(f"profile.json: interests.{cid} no es válido")
+    if not isinstance(prof["category_rules"], dict) or any(
+            not isinstance(v, list) or any(not isinstance(k, str) for k in v) for v in prof["category_rules"].values()):
+        raise ValueError("profile.json: category_rules debe ser {categoría: [palabras]}")
+    _PROFILE_CACHE.update(stamp=stamp, value=prof)
+    return prof
+
+
+_TITLE_STOP = {"de", "del", "la", "el", "los", "las", "y", "e", "o", "a", "en", "con", "do", "da", "dos", "das",
+               "concierto", "concerto", "live", "tour", "gira", "directo", "show", "presenta", "presentacion"}
+
+
+def _title_tokens(title):
+    return {t for t in re.findall(r"[a-z0-9]+", norm(title)) if t not in _TITLE_STOP and len(t) > 1}
+
+
+def similar_titles(a, b):
+    """Mismo evento con títulos distintos en dos fuentes («Hard GZ» / «Hard GZ en concierto: LACOSTA II»).
+    Títulos de una sola palabra solo se fusionan si son idénticos."""
+    ta, tb = _title_tokens(a), _title_tokens(b)
+    if not ta or not tb:
+        return False
+    if ta == tb:
+        return True
+    if min(len(ta), len(tb)) == 1:
+        return False
+    if ta <= tb or tb <= ta:
+        return True
+    return len(ta & tb) / len(ta | tb) >= 0.6
 
 
 def municipality_allowed(name):
@@ -165,6 +231,13 @@ def init_db():
             db.execute("ALTER TABLE activities ADD COLUMN announced_at TEXT NOT NULL DEFAULT ''")
         if "registration_opens_at" not in activity_cols:
             db.execute("ALTER TABLE activities ADD COLUMN registration_opens_at TEXT NOT NULL DEFAULT ''")
+        if "notified_at" not in activity_cols:
+            db.execute("ALTER TABLE activities ADD COLUMN notified_at TEXT")
+        if "notified_status" not in activity_cols:
+            db.execute("ALTER TABLE activities ADD COLUMN notified_status TEXT")
+        if "review" not in activity_cols:
+            db.execute("ALTER TABLE activities ADD COLUMN review TEXT NOT NULL DEFAULT 'none'")
+        db.execute("CREATE TABLE IF NOT EXISTS source_alerts (source TEXT PRIMARY KEY, alerted_at TEXT NOT NULL)")
         # Semillas idempotentes de categorías. El fichero es la taxonomía inicial editable.
         import json
         category_file = config_path("categories.json")
@@ -307,7 +380,8 @@ def get_source_status():
             "status": row.get("status", "pending"), "last_checked": row.get("finished_at", ""),
             "fetched": row.get("fetched", 0), "inserted": row.get("inserted", 0),
             "updated": row.get("updated", 0), "skipped": row.get("skipped", 0),
-            "error": row.get("error", ""), "disabled_reason": src.get("disabled_reason", "")
+            "error": row.get("error", ""), "disabled_reason": src.get("disabled_reason", ""),
+            "consecutive_bad": consecutive_bad(src.get("name", "")) if src.get("enabled", True) else 0
         })
     return result
 
@@ -375,7 +449,9 @@ def validate_activity(data):
     ev = {k: str(data.get(k) or "").strip() for k in (
         "title", "description", "municipality", "venue", "address", "starts_at", "ends_at",
         "event_type", "status", "verification", "source_name", "source_url", "ticket_url", "category_id",
-        "announced_at", "registration_opens_at")}
+        "announced_at", "registration_opens_at", "review")}
+    if ev["review"] not in ("", "pending"):
+        raise ValueError("review solo puede ser vacío o pending al crear una actividad.")
     ev["category_ids"] = list(dict.fromkeys(x.strip() for x in raw_categories))
     ev["entities"] = data.get("entities", [])
     if not isinstance(ev["entities"], list):
@@ -433,6 +509,13 @@ def upsert_activity(data):
             venue_id = db.execute("SELECT id FROM venues WHERE name=? AND municipality=?",
                                   (ev["venue"], ev["municipality"])).fetchone()["id"]
         old = db.execute("SELECT * FROM activities WHERE fingerprint=?", (fp,)).fetchone()
+        if not old:
+            # Misma fecha y municipio con título equivalente (p. ej. ICS y RSS de la misma agenda): es el mismo evento.
+            for cand in db.execute("SELECT * FROM activities WHERE municipality=? AND substr(starts_at,1,10)=?",
+                                   (ev["municipality"], ev["starts_at"][:10])).fetchall():
+                if similar_titles(ev["title"], cand["title"]) and not (venue_id and cand["venue_id"] and venue_id != cand["venue_id"]):
+                    old = cand
+                    break
         if old:
             # Una fuente secundaria nunca degrada la confirmación ni la verificación.
             status_rank = {"scheduled": 1, "postponed": 2, "cancelled": 3, "completed": 4}
@@ -456,12 +539,12 @@ def upsert_activity(data):
         else:
             cur = db.execute("""INSERT INTO activities
               (fingerprint,title,description,municipality,venue_id,starts_at,ends_at,announced_at,registration_opens_at,
-               event_type,status,verification,source_url,ticket_url,created_at,updated_at)
-              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               event_type,status,verification,source_url,ticket_url,review,created_at,updated_at)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
               (fp,ev["title"],ev["description"],ev["municipality"],venue_id,ev["starts_at"],ev["ends_at"],
                ev["announced_at"],ev["registration_opens_at"],ev["event_type"] or "event",
                ev["status"] or "scheduled",ev["verification"] or "unverified",
-               ev["source_url"],ev["ticket_url"],now,now))
+               ev["source_url"],ev["ticket_url"],ev["review"] or "none",now,now))
             activity_id, created = cur.lastrowid, True
         for category_id in ev["category_ids"]:
             db.execute("INSERT OR IGNORE INTO activity_categories(activity_id,category_id) VALUES(?,?)",
@@ -497,13 +580,95 @@ def get_activities(limit=500):
           FROM activities a LEFT JOIN venues v ON v.id=a.venue_id
           LEFT JOIN activity_categories ac ON ac.activity_id=a.id
           LEFT JOIN categories c ON c.id=ac.category_id
-          WHERE substr(a.starts_at,1,10)>=? GROUP BY a.id ORDER BY a.starts_at,a.title LIMIT ?""",
+          WHERE substr(a.starts_at,1,10)>=? AND a.review!='rejected' GROUP BY a.id ORDER BY a.starts_at,a.title LIMIT ?""",
           (date.today().isoformat(), max(1, min(int(limit), 1000)))).fetchall()
         result = [dict(r) for r in rows]
+        highlighted = set(get_profile()["highlight"])
         for item in result:
+            item.pop("notified_at", None); item.pop("notified_status", None)
             item["category_ids"] = item["category_ids"].split(",") if item["category_ids"] else []
+            item["highlight"] = bool(highlighted & set(item["category_ids"]))
             item["categories"] = item["categories"].split(",") if item["categories"] else []
             item["entities"] = [dict(x) for x in db.execute("""SELECT e.name,e.entity_type,ae.role,e.canonical_url
                 FROM activity_entities ae JOIN entities e ON e.id=ae.entity_id WHERE ae.activity_id=? ORDER BY e.name""", (item["id"],))]
             item["sources"] = [dict(x) for x in db.execute("SELECT source_name,source_url,first_seen,last_seen FROM activity_sources WHERE activity_id=? ORDER BY source_name", (item["id"],))]
         return result
+
+
+# ---------------- Salud de las fuentes ----------------
+def _bad(row):
+    """Una ejecución es mala si falla o no devuelve ningún elemento (fallo silencioso típico de un cambio de formato)."""
+    return row["status"] != "ok" or int(row["fetched"]) == 0
+
+
+def _enabled_source_names():
+    import json
+    cfg = config_path("sources.json")
+    if not cfg.exists(): cfg = ROOT / "sources.json"
+    sources = json.loads(cfg.read_text(encoding="utf-8")) if cfg.exists() else []
+    return [s["name"] for s in sources if s.get("enabled", True)]
+
+
+def consecutive_bad(source, limit=50):
+    with connect() as db:
+        rows = db.execute("SELECT status,fetched FROM source_runs WHERE source=? ORDER BY id DESC LIMIT ?", (source, limit)).fetchall()
+    n = 0
+    for r in rows:
+        if not _bad(r): break
+        n += 1
+    return n
+
+
+def pending_source_alerts():
+    """Fuentes activas con BAD_RUNS_ALERT ejecuciones malas seguidas que aún no se han avisado.
+    Las que se recuperaron (o se desactivaron) dejan de figurar como avisadas y podrán avisar de nuevo."""
+    names = _enabled_source_names()
+    pending = []
+    with connect() as db:
+        alerted = {r["source"] for r in db.execute("SELECT source FROM source_alerts")}
+    for name in names:
+        bad = consecutive_bad(name)
+        if bad >= BAD_RUNS_ALERT and name not in alerted:
+            with connect() as db:
+                last = db.execute("SELECT error FROM source_runs WHERE source=? ORDER BY id DESC LIMIT 1", (name,)).fetchone()
+            pending.append({"source": name, "bad_runs": bad, "reason": (last["error"] if last and last["error"] else "devuelve 0 elementos")})
+    with connect() as db:
+        for gone in alerted - {n for n in names if consecutive_bad(n) >= BAD_RUNS_ALERT}:
+            db.execute("DELETE FROM source_alerts WHERE source=?", (gone,))
+    return pending
+
+
+def mark_source_alerted(names):
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with connect() as db:
+        db.executemany("INSERT OR REPLACE INTO source_alerts(source,alerted_at) VALUES(?,?)", [(n, now) for n in names])
+
+
+# ---------------- Revisión de actividades inferidas ----------------
+def review_list(state="pending", limit=200):
+    if state not in ("pending", "rejected"):
+        raise ValueError("Estado de revisión no válido (pending o rejected).")
+    with connect() as db:
+        rows = db.execute("""SELECT a.id,a.title,substr(a.description,1,300) AS description,a.municipality,a.starts_at,a.status,a.verification,
+              a.source_url,a.review,GROUP_CONCAT(DISTINCT ac.category_id) AS category_ids
+              FROM activities a LEFT JOIN activity_categories ac ON ac.activity_id=a.id
+              WHERE a.review=? AND substr(a.starts_at,1,10)>=? GROUP BY a.id ORDER BY a.starts_at,a.title LIMIT ?""",
+              (state, date.today().isoformat(), max(1, min(int(limit), 500)))).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r); d["category_ids"] = d["category_ids"].split(",") if d["category_ids"] else []
+            d["sources"] = [x["source_name"] for x in db.execute("SELECT source_name FROM activity_sources WHERE activity_id=?", (d["id"],))]
+            out.append(d)
+        return out
+
+
+def review_action(activity_id, action):
+    """confirm: verificado por una persona; reject: se oculta y no vuelve aunque la fuente lo repita; restore: vuelve a pendiente."""
+    target = {"confirm": "ok", "reject": "rejected", "restore": "pending"}.get(action)
+    if not target:
+        raise ValueError("Acción no válida (confirm, reject o restore).")
+    with connect() as db:
+        cur = db.execute("UPDATE activities SET review=? WHERE id=?", (target, int(activity_id)))
+        if cur.rowcount == 0:
+            raise ValueError("Actividad no encontrada.")
+    return {"ok": True, "action": action}

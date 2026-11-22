@@ -80,8 +80,8 @@ def _send(payload):
     return sent, dead
 
 
-def notify_new(mark_only=False):
-    """Avisa de eventos futuros aún no notificados y los marca. Sin novedades: no envía nada."""
+def notify_events(mark_only=False):
+    """Avisa de eventos (modelo heredado) futuros aún no notificados y los marca. Sin novedades: no envía nada."""
     from datetime import date
     with core.connect() as db:
         new = [dict(r) for r in db.execute(
@@ -111,6 +111,77 @@ def notify_new(mark_only=False):
         db.executemany("UPDATE events SET notified_at=? WHERE id=?", [(now, e["id"]) for e in new])
     print(f"{len(new)} evento(s) {'marcados' if mark_only else 'notificados'}.")
     return len(new)
+
+
+def notify_activities(mark_only=False):
+    """Avisa de actividades de las categorías de profile.notify: nuevas y cambios a cancelado/aplazado de las ya avisadas.
+    Sin categorías en notify no se avisa de nada. Lo que ya proyecta un evento heredado no se repite."""
+    from datetime import date
+    cats = [x for x in core.get_profile()["notify"] if x]
+    if not cats:
+        print("profile.notify vacío: sin avisos de actividades."); return 0
+    marks = ",".join("?" for _ in cats)
+    with core.connect() as db:
+        rows = [dict(r) for r in db.execute(
+            f"""SELECT DISTINCT a.* FROM activities a JOIN activity_categories ac ON ac.activity_id=a.id
+                WHERE ac.category_id IN ({marks}) AND a.review!='rejected' AND a.legacy_event_id IS NULL AND substr(a.starts_at,1,10)>=?
+                ORDER BY a.created_at""", (*cats, date.today().isoformat()))]
+    new = [r for r in rows if r["notified_at"] is None]
+    announce = [r for r in new if r["status"] == "scheduled"]
+    changed = [r for r in rows if r["notified_at"] is not None and r["status"] in ("cancelled", "postponed")
+               and (r["notified_status"] or "") != r["status"]]
+    if not announce and not changed:
+        _mark_activities(new, []); print("Sin novedades de actividades: no se envía aviso."); return 0
+    sent_total = 0
+    if not mark_only:
+        if not available():
+            print("Push sin configurar (python push.py genkeys); las actividades quedan pendientes."); return 0
+        for r in changed:
+            word = "CANCELADO" if r["status"] == "cancelled" else "APLAZADO"
+            sent_total += _send({"title": f'{word}: {r["title"][:80]}', "body": f'{r["municipality"]} · {r["starts_at"][:10]}. Revisa la fuente.',
+                                 "url": r["source_url"] or "/"})[0]
+        if 0 < len(announce) <= 3:
+            for r in announce:
+                sent_total += _send({"title": f'Nuevo: {r["title"][:80]}', "body": f'{r["municipality"]} · {r["starts_at"][:10]}',
+                                     "url": r["source_url"] or "/"})[0]
+        elif announce:
+            sent_total += _send({"title": f"{len(announce)} actividades nuevas en Rúa",
+                                 "body": " · ".join(sorted({r["municipality"] for r in announce})), "url": "/"})[0]
+        if sent_total == 0:
+            print("No se ha podido entregar ningún push; las actividades siguen pendientes."); return 0
+    _mark_activities(new, changed)
+    print(f"{len(announce)} actividad(es) nueva(s) y {len(changed)} cambio(s) de estado {'marcados' if mark_only else 'notificados'}.")
+    return len(announce) + len(changed)
+
+
+def _mark_activities(new, changed):
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with core.connect() as db:
+        db.executemany("UPDATE activities SET notified_at=?, notified_status=status WHERE id=?", [(now, r["id"]) for r in new])
+        db.executemany("UPDATE activities SET notified_status=status WHERE id=?", [(r["id"],) for r in changed])
+
+
+def notify_health():
+    """Avisa UNA vez cuando una fuente activa lleva core.BAD_RUNS_ALERT ejecuciones seguidas fallando o sin datos."""
+    pending = core.pending_source_alerts()
+    if not pending:
+        return 0
+    for p in pending:
+        print(f'AVISO: la fuente «{p["source"]}» lleva {p["bad_runs"]} ejecuciones seguidas sin datos útiles ({p["reason"]}).')
+    if not available():
+        print("Push sin configurar: el aviso de fuente rota solo sale por consola.")
+        return 0
+    delivered = []
+    for p in pending:
+        sent, _ = _send({"title": "Rúa: fuente sin datos", "body": f'{p["source"]}: {p["reason"][:120]} ({p["bad_runs"]} ejecuciones)', "url": "/"})
+        if sent: delivered.append(p["source"])
+    core.mark_source_alerted(delivered)
+    return len(delivered)
+
+
+def notify_new(mark_only=False):
+    """Eventos heredados + actividades del perfil."""
+    return notify_events(mark_only) + notify_activities(mark_only)
 
 
 if __name__ == "__main__":
